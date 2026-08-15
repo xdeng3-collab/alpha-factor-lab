@@ -13,6 +13,12 @@ def test_unsorted_or_duplicated_timestamps_are_rejected():
         Panel(close=dup)
 
 
+def test_volume_must_align_with_close():
+    panel = synthetic_panel(5, 30, seed=1)
+    with pytest.raises(ValueError):
+        Panel(close=panel.close, volume=panel.volume.iloc[:-1])
+
+
 def test_forward_return_looks_exactly_one_step_ahead():
     panel = synthetic_panel(3, 10, seed=2)
     forward = panel.forward_return(1)
