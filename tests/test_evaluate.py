@@ -49,6 +49,21 @@ def test_quantile_weights_are_dollar_neutral():
     assert np.allclose(active.abs().sum(axis=1), 1.0)
 
 
+def test_putting_the_book_on_is_charged_for():
+    # A backtest that starts fully invested for free has stolen its first
+    # period of cost. The build must appear in the traded volume.
+    panel = synthetic_panel(30, 200, seed=11, embed_signal=0.2)
+    weights = ev.quantile_weights(factors.prepare(factors.reversal_1(panel)))
+    forward = panel.forward_return(1)
+
+    first_active = weights.index[weights.abs().sum(axis=1) > 0][0]
+    free, _ = ev.backtest(weights, forward, cost_bps=0.0)
+    charged, _ = ev.backtest(weights, forward, cost_bps=100.0)
+    assert charged.loc[first_active] < free.loc[first_active]
+    # And over the whole path, cost strictly reduces the cumulative return.
+    assert charged.sum() < free.sum()
+
+
 def test_neutralization_removes_the_exposure_it_is_given():
     panel = synthetic_panel(40, 300, seed=13)
     exposure = panel.close.pct_change().rolling(60).std()
