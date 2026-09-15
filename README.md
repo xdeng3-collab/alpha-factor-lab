@@ -11,6 +11,13 @@ python cli.py audit             # look-ahead check on every factor
 python cli.py evaluate          # IC, cost curve, walk-forward
 ```
 
+
+Every table in this README is the literal output of the command above it, and
+the committed copies in [`results/`](results/) carry the interpreter and library
+versions that produced them. Nothing here is timed, so unlike a latency
+benchmark these numbers are expected to reproduce exactly on any machine — and
+CI asserts they still do rather than merely checking the commands exit zero.
+
 ## The two things this is built around
 
 **1. Look-ahead is structural, then proven.**

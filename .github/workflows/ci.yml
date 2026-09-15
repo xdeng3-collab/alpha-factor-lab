@@ -15,4 +15,32 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - run: python -m pytest tests -q
-      - run: python cli.py calibrate && python cli.py audit
+      - name: Assert the calibration still holds
+        run: |
+          python - <<'PY'
+          import subprocess, re, sys
+          out = subprocess.run([sys.executable, "cli.py", "calibrate"],
+                               capture_output=True, text=True, check=True).stdout
+          noise, planted = out.split("planted reversal")
+          # Section A: pure noise must report ~0 IC for every factor.
+          ics = [float(m) for m in re.findall(r"IC\s+([+-]?\d+\.\d+)", noise)]
+          assert ics, "no IC lines parsed from the noise section"
+          worst = max(abs(v) for v in ics)
+          print(f"noise: {len(ics)} factors, largest |IC| {worst:.4f}")
+          if worst > 0.02:
+              sys.exit(f"calibration broken: noise produced |IC| {worst:.4f} > 0.02")
+          # Section B: the planted reversal must come back.
+          m = re.search(r"reversal_1\s+IC\s+([+-]?\d+\.\d+)", planted)
+          assert m, "planted-signal line for reversal_1 not found"
+          recovered = float(m.group(1))
+          print(f"planted 0.15 reversal recovered as IC {recovered:+.4f}")
+          if recovered < 0.10:
+              sys.exit(f"planted signal not recovered: IC {recovered:+.4f} < 0.10")
+          PY
+      - name: Assert the look-ahead audit still catches the planted leak
+        run: |
+          python cli.py audit | tee audit.txt
+          grep -q "LEAKS" audit.txt || { echo "audit no longer flags the deliberate leak"; exit 1; }
+          if grep -E "^(reversal|momentum|volatility|volume|price)" audit.txt | grep -qv "clean"; then
+            echo "a real factor is now flagged as leaking"; exit 1
+          fi
