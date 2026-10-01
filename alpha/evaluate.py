@@ -62,7 +62,12 @@ def information_coefficient(factor: pd.DataFrame, forward: pd.DataFrame) -> pd.S
     return pd.Series(values, index=pd.Index(index, name=aligned_factor.index.name))
 
 
-def summarize_ic(ic: pd.Series, factor: pd.DataFrame | None = None) -> ICSummary:
+def summarize_ic(
+    ic: pd.Series,
+    factor: pd.DataFrame | None = None,
+    *,
+    periods_per_year: float = TRADING_DAYS,
+) -> ICSummary:
     clean = ic.dropna()
     if clean.empty:
         raise ValueError("no periods with a computable IC")
@@ -78,7 +83,7 @@ def summarize_ic(ic: pd.Series, factor: pd.DataFrame | None = None) -> ICSummary
     return ICSummary(
         mean=float(clean.mean()),
         std=std,
-        icir=float(clean.mean() / std * np.sqrt(TRADING_DAYS)) if std > 0 else 0.0,
+        icir=float(clean.mean() / std * np.sqrt(periods_per_year)) if std > 0 else 0.0,
         hit_rate=float((clean > 0).mean()),
         periods=int(len(clean)),
         autocorr_1=autocorr,
@@ -110,6 +115,7 @@ def backtest(
     forward: pd.DataFrame,
     *,
     cost_bps: float = 0.0,
+    periods_per_year: float = TRADING_DAYS,
 ) -> tuple[pd.Series, PortfolioSummary]:
     """Period returns and a summary, net of one-sided transaction cost.
 
@@ -128,8 +134,8 @@ def backtest(
     if net.empty:
         raise ValueError("no periods survived alignment")
 
-    annual_return = float(net.mean() * TRADING_DAYS)
-    annual_vol = float(net.std() * np.sqrt(TRADING_DAYS))
+    annual_return = float(net.mean() * periods_per_year)
+    annual_vol = float(net.std() * np.sqrt(periods_per_year))
     curve = (1.0 + net).cumprod()
     drawdown = float((curve / curve.cummax() - 1.0).min())
 
@@ -148,9 +154,11 @@ def cost_curve(
     forward: pd.DataFrame,
     *,
     levels: tuple[float, ...] = (0.0, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0),
+    periods_per_year: float = TRADING_DAYS,
 ) -> pd.DataFrame:
     """Sharpe across transaction-cost levels: where does the edge die?"""
-    rows = [backtest(weights, forward, cost_bps=level)[1].as_dict() for level in levels]
+    rows = [backtest(weights, forward, cost_bps=level, periods_per_year=periods_per_year)[1].as_dict()
+            for level in levels]
     return pd.DataFrame(rows)
 
 

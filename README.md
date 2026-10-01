@@ -5,7 +5,7 @@ rather than by careful reading.
 
 ```bash
 pip install -r requirements.txt
-python -m pytest tests -q       # 26 tests
+python -m pytest tests -q       # 37 tests, all offline
 python cli.py calibrate         # does the pipeline report nothing on noise?
 python cli.py audit             # look-ahead check on every factor
 python cli.py evaluate          # IC, cost curve, walk-forward
@@ -101,20 +101,57 @@ Cost accounting charges the initial build. A backtest that starts fully invested
 for free has already stolen its first period of cost; `test_putting_the_book_on_is_charged_for`
 holds that line.
 
-## Using real data
+## Real data: China A-shares
 
-`Panel` takes any wide close/volume frames, so pointing this at real prices is a
-loader away. Two things to write in your own README when you do:
+```bash
+pip install -r requirements-data.txt
+python cli.py fetch --universe all                  # every listed + delisted A-share, cached
+python cli.py --data data/ashare-all audit
+python cli.py --data data/ashare-all --horizon 5 evaluate
+```
 
-* **Survivorship bias.** The convenient free sources only carry instruments that
-  still exist. Every backtest on them is run on a universe selected for having
-  survived. If you cannot fix it, say so.
-* **Multiple testing.** Trying thirty factors and reporting the best three makes
-  those three t-statistics meaningless. The number of things tried belongs next
-  to the result.
+`alpha/ashare.py` downloads back-adjusted daily bars through AkShare (Sina, with
+Eastmoney as the fallback), caches one CSV per stock under `data/` (ignored by
+git), and builds the same `Panel` the synthetic pipeline uses. The data layer,
+not the factors, is where a real market's traps are handled:
 
-Neither is handled here, because neither can be handled by a library — they are
-claims about how the research was conducted.
+* **Back-adjusted, never forward-adjusted.** Forward adjustment (前复权)
+  rewrites every historical price each time a new dividend is paid, so a 2019
+  price computed from a vendor in 2025 already contains 2025 information. It is
+  look-ahead living in the data vendor, which no amount of careful factor code
+  can see.
+* **Untradable days are masked.** A stock that is suspended, or that closed at
+  its daily price limit (10%; 20% for STAR and, from 24 Aug 2020, ChiNext; 30%
+  on the Beijing exchange), could not have been bought or sold at that close.
+  Its factor value is blanked for that day, *before* the cross-section is
+  standardised, so the backtest never trades it.
+* **No prices across gaps.** Suspended days are NaN, not forward-filled. A price
+  carried across a suspension is a price nobody could trade at, and the return
+  that spans the gap is dropped rather than credited.
+* **New listings are excluded** for their first 60 sessions, which run without
+  normal limits and carry returns no factor is meant to explain.
+* **Size is the neutraliser.** Float market cap is recovered point-in-time from
+  the same row as traded amount / turnover rate, and every factor is
+  neutralised against its log. On A-shares the small-cap premium is large
+  enough that an un-neutralised factor is often a size bet in disguise.
+* **Weekly rebalancing.** `--horizon 5` holds for five sessions and samples one
+  row in five so periods never overlap. Daily rebalancing at A-share costs
+  (5 bps stamp duty on sales plus commission) is rarely what anyone would run.
+
+What it does *not* handle, stated so nobody has to discover it:
+
+* **Survivorship is only as good as the source.** `--universe all` asks for
+  every delisted stock the exchanges list, but the data sources do not serve
+  all of them; `manifest.json` records exactly which codes could not be
+  fetched. The `csi300`/`csi500` universes use *today's* constituents and are
+  biased towards stocks that grew into the index; the CLI prints a warning
+  whenever they are used.
+* **ST stocks** trade with a 5% limit, and ST status history is not in this
+  data, so an ST stock pinned at 5% is not masked.
+* **Holding through a limit-down** is not modelled: a stock bought earlier and
+  then locked limit-down is assumed sellable at the close.
+* **Multiple testing.** Seven factors are evaluated here and all seven are
+  reported. The number of things tried belongs next to any result quoted.
 
 ## Layout
 
@@ -124,8 +161,9 @@ alpha/
   lookahead.py   truncate-and-compare detection
   factors.py     seven factors, winsorize / neutralize / standardize
   evaluate.py    IC, quantile backtest, cost curve, walk-forward
+  ashare.py      A-share download, cache, tradability mask, size
 cli.py           calibrate / audit / evaluate
-tests/           26 tests, weighted toward the detector and the noise calibration
+tests/           37 tests, weighted toward the detector, the noise calibration and the A-share mask
 ```
 
 ## License
