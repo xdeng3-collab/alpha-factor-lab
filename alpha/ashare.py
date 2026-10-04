@@ -238,7 +238,8 @@ def fetch(
     Resumable: a code whose file already exists is skipped, so an interrupted
     download picks up where it stopped. Both sources drop connections when
     requests come too fast, so requests are paced and failures back off
-    exponentially. Returns the codes that still failed, with the reason.
+    exponentially; errors that are not network errors are not retried.
+    Returns the codes that still failed, with the reason.
     """
     import socket
 
@@ -262,6 +263,7 @@ def fetch(
     cache.mkdir(parents=True, exist_ok=True)
     codes = list(codes)
     failed: dict[str, str] = {}
+    eastmoney_strikes = 0
     for n, code in enumerate(codes, 1):
         path = cache / f"{code}.csv"
         if path.exists():
@@ -269,16 +271,27 @@ def fetch(
         for attempt in range(retries):
             errors = []
             not_served = False
-            for source in (from_sina, from_eastmoney):
+            sources = (from_sina, from_eastmoney) if eastmoney_strikes < 3 else (from_sina,)
+            for source in sources:
                 try:
                     source(code).to_csv(path)
+                    if source is from_eastmoney:
+                        eastmoney_strikes = 0
                     break
                 except Exception as error:  # the sources fail in many shapes
                     errors.append(f"{source.__name__}: {type(error).__name__}: {error}"[:150])
-                    # Sina answers a code it has no data for (most delisted
-                    # stocks) with an unparseable body. That will not change
-                    # on retry, so one Eastmoney attempt is all it gets.
-                    not_served = not_served or (source is from_sina and isinstance(error, ValueError))
+                    # Only network errors are worth retrying. Anything else
+                    # from Sina -- an unparseable body for most delisted
+                    # stocks, a missing column for some Beijing listings --
+                    # is an answer about the data and will repeat.
+                    if source is from_sina and not isinstance(error, OSError):
+                        not_served = True
+                    # Eastmoney refuses some networks outright. After three
+                    # refusals in a row, stop paying for it on every code.
+                    if source is from_eastmoney and isinstance(error, (ConnectionError, OSError)):
+                        eastmoney_strikes += 1
+                        if eastmoney_strikes == 3:
+                            log("  Eastmoney refusing connections; continuing with Sina only")
             if path.exists():
                 failed.pop(code, None)
                 break

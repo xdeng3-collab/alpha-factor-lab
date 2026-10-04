@@ -60,6 +60,14 @@ def _load(args):
     if manifest["universe"] != "all":
         lines.append("WARNING: index universe uses TODAY's constituents -- survivorship "
                      "and selection bias; use --universe all for results you quote")
+    listing = Path(args.data) / "universe.csv"
+    if listing.exists():
+        codes = pd.read_csv(listing, dtype={"code": str})
+        delisted = codes.loc[codes["source"].str.startswith("delisted"), "code"]
+        missing = delisted.isin(manifest["failed"]).sum()
+        if missing:
+            lines.append(f"WARNING: {missing} of {len(delisted)} delisted stocks could not be "
+                         "fetched -- survivorship bias remains in this universe")
     return panel, real, "\n".join(lines)
 
 
