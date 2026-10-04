@@ -226,6 +226,7 @@ def fetch(
     end: str,
     pause: float = 0.6,
     retries: int = 5,
+    timeout: float = 30.0,
     log: Callable[[str], None] = print,
 ) -> dict[str, str]:
     """Download back-adjusted daily bars into ``cache/<code>.csv``.
@@ -239,7 +240,14 @@ def fetch(
     requests come too fast, so requests are paced and failures back off
     exponentially. Returns the codes that still failed, with the reason.
     """
+    import socket
+
     import akshare as ak
+
+    # AkShare's Sina request sets no timeout, and one stalled connection would
+    # otherwise hang the whole download indefinitely. requests falls back to
+    # the socket default when it is given none.
+    socket.setdefaulttimeout(timeout)
 
     def from_sina(code: str) -> pd.DataFrame:
         raw = ak.stock_zh_a_daily(symbol=sina_symbol(code), adjust="hfq",
